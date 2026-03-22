@@ -1,0 +1,210 @@
+import sys
+
+import cv2
+import numpy as np
+import time
+import click
+import random
+import threading
+from mss import mss
+import pygetwindow as gw
+from config_dialog import FarmConfigDialog
+from stage_selector import StageSelector
+
+
+class GameFarmAutomation:
+    def __init__(self, confidence: float = 0.5):
+        self.win_rate_template = cv2.imread('battle-images/win_rate.jpg', cv2.IMREAD_COLOR)
+        self.gear_template = cv2.imread('battle-images/Gear.png', cv2.IMREAD_COLOR)
+        self.confirm_template = cv2.imread('battle-images/confirm.jpg', cv2.IMREAD_COLOR)
+        self.level_up_template = cv2.imread('battle-images/lvl.jpg', cv2.IMREAD_COLOR)
+        self.confidence = confidence
+        windows = gw.getWindowsWithTitle('LimbusCompany')
+        self.game_window = windows[0] if windows else None
+        self.stage_selector = StageSelector(self.game_window)
+        self._stop_flag = False
+
+    def set_stage_positions(self, select_pos: tuple, start_pos: tuple):
+        """Устанавливает запомненные позиции стадии из диалога настроек"""
+        self.stage_selector._stage_select_position = select_pos
+        self.stage_selector._stage_start_position = start_pos
+        print(f"Позиции стадии установлены: {select_pos} → {start_pos}")
+
+    def request_stop(self):
+        """Запросить остановку фарма (вызывается из GUI)"""
+        self._stop_flag = True
+        print("Запрос остановки получен")
+
+    def is_stopped(self):
+        """Проверить, запрошена ли остановка"""
+        return self._stop_flag
+
+    def find_template_on_screen(self, template, confidence=None):
+        if template is None or self.game_window is None:
+            return None
+
+        if confidence is None:
+            confidence = self.confidence
+
+        with mss() as sct:
+            monitor = {
+                "left": self.game_window.left,
+                "top": self.game_window.top,
+                "width": self.game_window.width,
+                "height": self.game_window.height
+            }
+            screenshot = np.array(sct.grab(monitor))
+            screenshot = cv2.cvtColor(screenshot, cv2.COLOR_BGRA2BGR)
+
+        result = cv2.matchTemplate(screenshot, template, cv2.TM_CCOEFF_NORMED)
+        locations = np.where(result >= confidence)
+
+        if len(locations[0]) > 0:
+            x = locations[1][0]
+            y = locations[0][0]
+            h, w = template.shape[:2]
+            center_x = self.game_window.left + x + w // 2
+            center_y = self.game_window.top + y + h // 2
+            return int(center_x), int(center_y)
+
+        return None
+
+    def check_win_rate_and_click_gear(self):
+        win_rate_pos = self.find_template_on_screen(self.win_rate_template)
+
+        if win_rate_pos:
+            click.click_mouse(win_rate_pos[0], win_rate_pos[1])
+            time.sleep(0.3)
+
+            gear_pos = self.find_template_on_screen(self.gear_template)
+
+            if gear_pos:
+                click.click_mouse(gear_pos[0], gear_pos[1])
+                return True
+        return False
+
+    def click_on_stage_positions(self, random_offset: int = 5):
+        select_pos = self.stage_selector.get_stage_select_position()
+        start_pos = self.stage_selector.get_stage_start_position()
+
+        if select_pos is None or start_pos is None:
+            return False
+
+        x1 = select_pos[0] + random.randint(-random_offset, random_offset)
+        y1 = select_pos[1] + random.randint(-random_offset, random_offset)
+        click.click_mouse(x1, y1)
+        time.sleep(1)
+
+        x2 = start_pos[0] + random.randint(-random_offset, random_offset)
+        y2 = start_pos[1] + random.randint(-random_offset, random_offset)
+        click.click_mouse(x2, y2)
+        time.sleep(2)
+
+        return True
+
+    def handle_post_battle_screen(self):
+        level_up_pos = self.find_template_on_screen(self.level_up_template)
+
+        if level_up_pos:
+            click.click_mouse(level_up_pos[0], level_up_pos[1])
+            time.sleep(1)
+            time.sleep(0.5)
+
+        confirm_pos = self.find_template_on_screen(self.confirm_template, confidence=0.5)
+
+        if confirm_pos:
+            click.click_mouse(confirm_pos[0], confirm_pos[1])
+            time.sleep(1.5)
+            return True
+
+        return False
+
+    def _farm_loop_thread(self, runs, status_window):
+        """Внутренний метод для запуска в потоке"""
+        try:
+            for run in range(1, runs + 1):
+                if self.is_stopped():
+                    break
+
+                if status_window:
+                    status_window.update_progress(run, runs)
+
+                if run > 1:
+                    if not self.click_on_stage_positions():
+                        break
+                    time.sleep(3)
+
+                battle_active = True
+                while battle_active and not self.is_stopped():
+                    completed = self.handle_post_battle_screen()
+                    if completed:
+                        battle_active = False
+                        break
+                    found = self.check_win_rate_and_click_gear()
+                    if not found:
+                        time.sleep(1)
+
+                if run < runs:
+                    time.sleep(2)
+
+            if status_window:
+                status_window.set_finished()
+
+        except Exception as e:
+            print(f"Ошибка в фарме: {e}")
+        finally:
+            print("Программа остановлена")
+
+    def start_farm(self, runs, status_window):
+        """Запустить фарм в отдельном потоке"""
+        self._stop_flag = False
+        thread = threading.Thread(target=self._farm_loop_thread, args=(runs, status_window), daemon=True)
+        thread.start()
+        return thread
+
+
+def main():
+    windows = gw.getWindowsWithTitle('LimbusCompany')
+    game_window = windows[0] if windows else None
+
+    config_dialog = FarmConfigDialog(game_window=game_window)
+    config = config_dialog.get_farm_config()
+
+    if config is None:
+        print("Настройка отменена")
+        return
+
+    bot = GameFarmAutomation(confidence=0.4)
+
+    if bot.game_window is None:
+        print("Окно игры не найдено!")
+        return
+
+    if "stage_select" in config and "stage_start" in config:
+        bot.set_stage_positions(
+            select_pos=config["stage_select"],
+            start_pos=config["stage_start"]
+        )
+    else:
+        print("Позиции стадии не получены!")
+        return
+
+    def on_finish():
+        config_dialog.root.quit()
+        config_dialog.root.destroy()
+        config_dialog.root.after(100, lambda: sys.exit(0))
+
+    status_window = config_dialog.show_status_window(
+        config["runs"],
+        on_stop_callback=bot.request_stop,
+        on_finish_callback=on_finish
+    )
+
+    bot.start_farm(runs=config["runs"], status_window=status_window)
+
+    config_dialog.root.mainloop()
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
