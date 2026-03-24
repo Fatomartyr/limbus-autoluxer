@@ -4,8 +4,7 @@ from stage_selector import StageSelector
 
 
 class FarmStatusWindow:
-    """Окно статуса фарма с прогрессом и кнопкой остановки"""
-
+    """UI"""
     def __init__(self, parent, total_runs: int, on_stop_callback=None, on_finish_callback=None):
         self.window = tk.Toplevel(parent)
         self.window.title("Autoluxer — Статус")
@@ -49,21 +48,18 @@ class FarmStatusWindow:
         ).pack(pady=5)
 
     def _on_stop(self):
-        """Обработчик кнопки остановки"""
         self.stop_requested = True
         self.progress_label.config(text="Остановка...", fg="#f44336")
         if self.on_stop_callback:
             self.on_stop_callback()
 
     def update_progress(self, current: int, total: int):
-        """Обновить прогресс (безопасно для tkinter)"""
         def _do():
             if self.window.winfo_exists():
                 self.progress_label.config(text=f"Проход: {current}/{total}")
         self.window.after(0, _do)
 
     def set_finished(self):
-        """Показать завершение и закрыть приложение"""
         def _do():
             if self.window.winfo_exists():
                 self.progress_label.config(text="Завершено!", fg="#4CAF50")
@@ -89,7 +85,6 @@ class FarmConfigDialog:
         self.root.after(0, _do_update)
 
     def get_farm_config(self):
-        """Show dialog with input farm loop number"""
 
         dialog = tk.Toplevel(self.root)
         dialog.title("Autoluxer")
@@ -177,8 +172,7 @@ class FarmConfigDialog:
         return self.result
 
     def _show_stage_selection_dialog(self):
-        """Диалог выбора двух кликов с обновлением статуса в GUI"""
-
+        """Dialog with stage selection"""
         wait_dialog = tk.Toplevel(self.root)
         wait_dialog.title("Autoluxer")
         wait_dialog.geometry("380x150")
@@ -237,5 +231,4 @@ class FarmConfigDialog:
         )
 
     def show_status_window(self, total_runs: int, on_stop_callback=None, on_finish_callback=None):
-        """Создать и вернуть окно статуса фарма"""
         return FarmStatusWindow(self.root, total_runs, on_stop_callback, on_finish_callback)

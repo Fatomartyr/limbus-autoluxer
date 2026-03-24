@@ -75,3 +75,5 @@ screenshot_*.png
 build/
 dist/
 *.spec.bak
+Scripts/
+pyvenv.cfg
