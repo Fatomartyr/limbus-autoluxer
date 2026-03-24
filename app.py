@@ -40,10 +40,6 @@ class GameFarmAutomation:
         self.stage_selector = StageSelector(self.game_window)
         self._stop_flag = False
 
-    def set_stage_positions(self, select_pos: tuple, start_pos: tuple):
-        self.stage_selector._stage_select_position = select_pos
-        self.stage_selector._stage_start_position = start_pos
-
     def request_stop(self):
         self._stop_flag = True
 
@@ -72,22 +68,21 @@ class GameFarmAutomation:
         return False
 
     def click_on_stage_positions(self, random_offset: int = 5):
-        select_pos = self.stage_selector.get_stage_select_position()
-        start_pos = self.stage_selector.get_stage_start_position()
+        positions = self.stage_selector.get_stage_positions()
 
-        if select_pos is None or start_pos is None:
-            return False
+        if self.game_window:
+            self.game_window.activate()
+            self.game_window.restore()
+            time.sleep(0.3)
 
-        x1 = select_pos[0] + random.randint(-random_offset, random_offset)
-        y1 = select_pos[1] + random.randint(-random_offset, random_offset)
-        click.click_mouse(x1, y1)
-        time.sleep(1)
+        for i, (x, y) in enumerate(positions):
+            click_x = x + random.randint(-random_offset, random_offset)
+            click_y = y + random.randint(-random_offset, random_offset)
+            click.click_mouse(click_x, click_y)
+            if i < len(positions) - 1:
+                time.sleep(1)
 
-        x2 = start_pos[0] + random.randint(-random_offset, random_offset)
-        y2 = start_pos[1] + random.randint(-random_offset, random_offset)
-        click.click_mouse(x2, y2)
         time.sleep(2)
-
         return True
 
     def handle_post_battle_screen(self):
@@ -165,11 +160,8 @@ def main():
     if bot.game_window is None:
         return
 
-    if "stage_select" in config and "stage_start" in config:
-        bot.set_stage_positions(
-            select_pos=config["stage_select"],
-            start_pos=config["stage_start"]
-        )
+    if "stage_positions" in config and config["stage_positions"]:
+        bot.stage_selector.set_stage_positions(config["stage_positions"])
     else:
         return
 
